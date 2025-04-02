@@ -47,7 +47,7 @@ def preprocess_new_data(new_data):
 
 @app.route("/")
 def index():
-    return "Budgetin ML Service in Online!"
+    return "Budgetin ML Service is Online!"
 
 @app.route("/predict", methods=["POST"])
 def predict():
