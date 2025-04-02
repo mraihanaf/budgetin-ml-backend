@@ -1,5 +1,5 @@
 {
-  description = "Flask API with Machine Learning Dependencies";
+  description = "Nix shell with Python and ML dependencies";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -8,21 +8,22 @@
   outputs = { self, nixpkgs }: 
   let 
     pkgs = nixpkgs.legacyPackages.x86_64-linux;
+    python = pkgs.python312;
   in {
     devShells.x86_64-linux.default = pkgs.mkShell {
-      buildInputs = [
-        pkgs.python312
-        pkgs.python312Packages.pip
-        pkgs.python312Packages.virtualenv
+      packages = [
+        python
+        (python.withPackages (ps: with ps; [
+          numpy
+          pandas
+          joblib
+          fastapi
+          uvicorn
+        ]))
       ];
 
       shellHook = ''
-        if [ ! -d ".venv" ]; then
-          virtualenv .venv
-        fi
-        source .venv/bin/activate
-        pip install --upgrade pip
-        pip install -r requirements.txt
+        echo "Nix environment with Python 3.12, NumPy, Pandas, Joblib, and FastAPI is ready!"
       '';
     };
   };
