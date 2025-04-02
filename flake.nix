@@ -17,14 +17,11 @@
           numpy
           pandas
           joblib
-          fastapi
-          uvicorn
+          flask
+          scikit-learn
+          gunicorn
         ]))
       ];
-
-      shellHook = ''
-        echo "Nix environment with Python 3.12, NumPy, Pandas, Joblib, and FastAPI is ready!"
-      '';
     };
   };
 }
