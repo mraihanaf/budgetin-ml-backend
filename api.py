@@ -1,60 +1,76 @@
 from flask import Flask, request, jsonify
 import joblib
+import traceback
+import os
 import numpy as np
+import pandas as pd
 
 app = Flask(__name__)
 
-# Load trained components
-model = joblib.load("model_rf.joblib")
-scaler = joblib.load("scaler.joblib")
-ordinal_encoder_mix = joblib.load("credit_mix_encoder.joblib")
-label_encoder_payment = joblib.load("payment_encoder.joblib")
-label_encoder_score = joblib.load("credit_score_encoder.joblib")
-imputation_mean = joblib.load("imputer.joblib")
-log_transformation = joblib.load("log_transformer.joblib")
+MODEL_PATH = "model_rf.joblib"
+SCALER_PATH = "scaler.joblib"
+ENCODER_MIX_PATH = "credit_mix_encoder.joblib"
+ENCODER_PAYMENT_PATH = "payment_encoder.joblib"
+ENCODER_SCORE_PATH = "credit_score_encoder.joblib"
+IMPUTER_PATH = "imputer.joblib"
+LOG_TRANSFORMER_PATH = "log_transformer.joblib"
 
-def preprocess_data(new_data):
-    """Preprocess input JSON data without using Pandas."""
-    # Convert input JSON dictionary to NumPy array
-    raw_values = np.array([list(new_data.values())], dtype=np.float64)
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(f"Model file '{MODEL_PATH}' not found.")
 
-    # Handle missing values (imputation)
-    processed_values = imputation_mean.transform(raw_values)
+model = joblib.load(MODEL_PATH)
+scaler = joblib.load(SCALER_PATH)
+ordinal_encoder_mix = joblib.load(ENCODER_MIX_PATH)
+label_encoder_payment = joblib.load(ENCODER_PAYMENT_PATH)
+label_encoder_score = joblib.load(ENCODER_SCORE_PATH)
+imputation_mean = joblib.load(IMPUTER_PATH)
+log_transformation = joblib.load(LOG_TRANSFORMER_PATH)
 
-    # Apply log transformation if needed
-    processed_values = log_transformation.transform(processed_values)
+numeric_cols = [
+    "Annual_Income", "Monthly_Inhand_Salary", "Num_Bank_Accounts", "Num_Credit_Card", "Interest_Rate", "Num_of_Loan", "Delay_from_due_date", "Num_of_Delayed_Payment",
+    "Changed_Credit_Limit", "Num_Credit_Inquiries", "Outstanding_Debt", "Credit_Utilization_Ratio", "Total_EMI_per_month", "Amount_invested_monthly", "Monthly_Balance"
+]
+categoric_cols = ["Credit_Mix", "Payment_of_Min_Amount"]
+log_transform_cols = ["Annual_Income", "Monthly_Inhand_Salary", "Outstanding_Debt", "Total_EMI_per_month", "Amount_invested_monthly", "Monthly_Balance"]
 
-    # Encode categorical features (assuming indexes 2, 3, and 4 are categorical)
-    processed_values[:, 2] = ordinal_encoder_mix.transform(processed_values[:, 2].reshape(-1, 1)).flatten()
-    processed_values[:, 3] = label_encoder_payment.transform(processed_values[:, 3].reshape(-1, 1)).flatten()
-    processed_values[:, 4] = label_encoder_score.transform(processed_values[:, 4].reshape(-1, 1)).flatten()
+EXPECTED_KEYS = numeric_cols + categoric_cols
 
-    # Scale numerical features
-    processed_values = scaler.transform(processed_values)
-
-    return processed_values
+def preprocess_new_data(new_data):
+    df = pd.DataFrame([new_data]) 
+    df[numeric_cols] = imputation_mean.transform(df[numeric_cols])
+    df[log_transform_cols] = log_transformation.transform(df[log_transform_cols])
+    df["Credit_Mix"] = ordinal_encoder_mix.transform(df[["Credit_Mix"]])
+    df["Payment_of_Min_Amount"] = label_encoder_payment.transform(df[["Payment_of_Min_Amount"]])
+    df[numeric_cols] = scaler.transform(df[numeric_cols])
+    df = df[model.feature_names_in_]
+    return df
 
 @app.route("/")
 def index():
-    return "Machine Learning Backend"
+    return "Budgetin ML Service in Online!"
 
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"error": "Invalid JSON"}), 400
+            return jsonify({"error": "No input data provided"}), 400
         
-        # Preprocess input data
-        processed_data = preprocess_data(data)
+        missing_keys = [key for key in EXPECTED_KEYS if key not in data]
+        if missing_keys:
+            return jsonify({"error": f"Missing keys: {missing_keys}"}), 400
+        
+        try:
+            preprocessed_data = preprocess_new_data(data)
+        except ValueError:
+            return jsonify({"error": "Invalid input: Check feature values and types."}), 400
 
-        # Make prediction
-        prediction = model.predict(processed_data)
-        
-        return jsonify({"prediction": int(prediction[0])})
+        prediction = model.predict(preprocessed_data)
+        decoded_prediction = label_encoder_score.inverse_transform(prediction)
+        return jsonify({"credit_score": decoded_prediction[0]})
     
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error", "message": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
